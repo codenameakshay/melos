@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ansi_styles/ansi_styles.dart';
@@ -515,6 +516,21 @@ void main() {
   });
 
   group('prompts', () {
+    test('answer from the terminal', () {
+      expect(_ask('  typed  \n', () => promptInput('m')), 'typed');
+      expect(_ask('\n', () => promptInput('m', defaultsTo: 'd')), 'd');
+      expect(_ask('\n x\n', () => promptInput('m')), 'x');
+      expect(_ask('y\n', promptBool), isTrue);
+      expect(_ask('2\n', () => promptChoice('m', ['a', 'b'])), 'b');
+    });
+
+    test('cancel or end of input throws instead of using a default', () {
+      expect(
+        () => _ask('', () => promptBool(defaultsToWithoutPrompt: true)),
+        throwsA(isA<PromptException>()),
+      );
+    });
+
     // Regression test for https://github.com/invertase/melos/issues/1057.
     //
     // Some environments report `stdin.hasTerminal == true` while any actual
@@ -541,6 +557,57 @@ void main() {
       );
     });
   });
+}
+
+/// Answers [prompt] from [input] lines, with plain (non-terminal) stdout.
+T _ask<T>(String input, T Function() prompt) {
+  final stdin = _LineStdin(const LineSplitter().convert(input));
+  return IOOverrides.runZoned(
+    prompt,
+    stdin: () => stdin,
+    stdout: () => _plainStdout,
+  );
+}
+
+final _plainStdout = _PlainStdout();
+
+class _LineStdin implements Stdin {
+  _LineStdin(this._lines);
+
+  final List<String> _lines;
+
+  @override
+  bool get hasTerminal => true;
+
+  @override
+  bool get echoMode => true;
+
+  @override
+  String? readLineSync({
+    Encoding encoding = systemEncoding,
+    bool retainNewlines = false,
+  }) {
+    if (_lines.isEmpty) return null;
+    final line = _lines.removeAt(0);
+    return retainNewlines ? '$line\n' : line;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _PlainStdout implements Stdout {
+  @override
+  bool get hasTerminal => false;
+
+  @override
+  void write(Object? object) {}
+
+  @override
+  void writeln([Object? object = '']) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _BrokenStdin implements Stdin {

@@ -6,8 +6,8 @@ import 'dart:isolate';
 import 'package:ansi_styles/ansi_styles.dart';
 import 'package:args/args.dart';
 import 'package:collection/collection.dart';
+import 'package:dart_tui/dart_tui.dart' as tui;
 import 'package:path/path.dart' as p;
-import 'package:prompts/prompts.dart' as prompts;
 import 'package:pub_semver/pub_semver.dart';
 import 'package:yaml/yaml.dart';
 
@@ -198,7 +198,7 @@ Version currentDartVersion(String dartTool) {
 }
 
 T _promptWithTerminal<T>(
-  T Function() runPrompt, {
+  T? Function() runPrompt, {
   required String message,
   T? defaultsTo,
   T? defaultsToWithoutPrompt,
@@ -206,7 +206,9 @@ T _promptWithTerminal<T>(
 }) {
   if (stdin.hasTerminal) {
     try {
-      return runPrompt();
+      stdin.echoMode;
+      // `null` means the user cancelled (Esc) or input ended.
+      return runPrompt() ?? (throw PromptException(message));
     } on StdinException {
       // `stdin.hasTerminal` can be true while stdin does not actually support
       // the terminal operations the prompt requires (e.g. reading the echo
@@ -244,7 +246,14 @@ String promptInput(
   bool requirePrompt = false,
 }) {
   return _promptWithTerminal(
-    () => prompts.get(message, defaultsTo: defaultsTo),
+    () {
+      final label = defaultsTo == null ? message : '$message ($defaultsTo)';
+      while (true) {
+        final answer = tui.promptInputSync(label)?.trim();
+        if (answer == null || answer.isNotEmpty) return answer;
+        if (defaultsTo != null) return defaultsTo;
+      }
+    },
     message: message,
     defaultsTo: defaultsTo,
     defaultsToWithoutPrompt: defaultsToWithoutPrompt,
@@ -259,7 +268,7 @@ bool promptBool({
   bool requirePrompt = false,
 }) {
   return _promptWithTerminal(
-    () => prompts.getBool(message, defaultsTo: defaultsTo),
+    () => tui.promptConfirmSync(message, defaultValue: defaultsTo),
     message: message,
     defaultsTo: defaultsTo,
     defaultsToWithoutPrompt: defaultsToWithoutPrompt,
@@ -277,13 +286,16 @@ T promptChoice<T>(
   bool requirePrompt = false,
 }) {
   return _promptWithTerminal(
-    () => prompts.choose(
-      message,
-      options,
-      defaultsTo: defaultsTo,
-      prompt: prompt,
-      interactive: interactive,
-    )!,
+    () {
+      final list = options.toList();
+      final labels = [for (final option in list) option.toString()];
+      final picked = tui.promptSelectSync(
+        labels,
+        title: message,
+        initial: defaultsTo == null ? null : list.indexOf(defaultsTo),
+      );
+      return picked == null ? null : list[labels.indexOf(picked)];
+    },
     message: message,
     defaultsTo: defaultsTo,
     defaultsToWithoutPrompt: defaultsToWithoutPrompt,
